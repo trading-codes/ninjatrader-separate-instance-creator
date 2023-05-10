@@ -1,6 +1,7 @@
 ﻿// https://Puvox.Software
 // License:  MIT
 
+using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -32,7 +33,38 @@ namespace NinjaTrader_Starter
 
         private string defaultNinjaDirPath { get { return Environment.GetFolderPath(Environment.SpecialFolder.Personal) + @"\NinjaTrader "+getChosenVersion(); } }
         private string targetNinjaBaseFolder { get { return Environment.GetFolderPath(Environment.SpecialFolder.Personal) + @"\NinjaTrader "+getChosenVersion()+@"\bin\Custom"; } } //Main NT doesnt work for some reason, Access denied
-        private string defaultNinjaInstallExe { get { return Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86) + @"\NinjaTrader " + getChosenVersion() + @"\bin"+(is64BitOS?"64":"")+@"\NinjaTrader.exe"; } }
+        private string defaultNinjaInstallExe { get {
+                var installDir = InstallDir + @"\bin64";
+                if (!Directory.Exists(installDir))
+                {
+                    installDir = InstallDir + @"\bin";
+                }
+                return installDir + @"\NinjaTrader.exe"; 
+            } }
+
+        public string InstallDir
+        {
+            get
+            {
+                try
+                {
+                    // Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles) + 
+                    RegistryKey registryKey = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, Environment.Is64BitOperatingSystem ? RegistryView.Registry64 : RegistryView.Registry32);
+                    registryKey = registryKey.OpenSubKey("SOFTWARE");
+                    if (Environment.Is64BitOperatingSystem)
+                    {
+                        registryKey = registryKey.OpenSubKey("Wow6432Node");
+                    }
+                    registryKey = registryKey.OpenSubKey("NinjaTrader, LLC");
+                    registryKey = registryKey.OpenSubKey("NinjaTrader "+ getChosenVersion());
+                    return (string)registryKey.GetValue("InstallDir");
+                }
+                catch (Exception)
+                {
+                    return (Environment.Is64BitOperatingSystem ? Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86) : Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles)) + "\\NinjaTrader 8\\";
+                }
+            }
+        }
 
 
 
@@ -60,7 +92,7 @@ namespace NinjaTrader_Starter
 
             if (!File.Exists(defaultNinjaInstallExe))
             {
-                m("NinjaTrader installation wasn't detected.");
+                m("NinjaTrader installation at " + defaultNinjaInstallExe + " wasn't detected.");
                 return;
             }
             else if (!Directory.Exists(targetNinjaBaseFolder))
