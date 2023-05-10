@@ -31,8 +31,8 @@ namespace NinjaTrader_Starter
         string tmpVersionPath = Environment.GetEnvironmentVariable("tmp") + "nt_mi_last_chosen_verion";
         string tmpClickStartPath = Environment.GetEnvironmentVariable("tmp") + "nt_mi_enable_clickstart";
 
-        private string defaultNinjaDirPath { get { return Environment.GetFolderPath(Environment.SpecialFolder.Personal) + @"\NinjaTrader "+getChosenVersion(); } }
-        private string targetNinjaBaseFolder { get { return Environment.GetFolderPath(Environment.SpecialFolder.Personal) + @"\NinjaTrader "+getChosenVersion()+@"\bin\Custom"; } } //Main NT doesnt work for some reason, Access denied
+        string NinjaDirDocumentsNt() { return Environment.GetFolderPath(Environment.SpecialFolder.Personal) + @"\NinjaTrader " + getChosenVersion(); }
+        string NinjaDirCustom () { return NinjaDirDocumentsNt() + @"\bin\Custom"; } //Main NT doesnt work for some reason, Access denied
         private string defaultNinjaInstallExe { get {
                 var installDir = InstallDir + @"\bin64";
                 if (!Directory.Exists(installDir))
@@ -70,6 +70,8 @@ namespace NinjaTrader_Starter
 
         private string specFileName = "z_NT_instance_name_";
         private string defaultInstanceName = "Default instance";
+        private string realConfigFileName = "Config.xml";
+        private string specConfigFileName = "z_config_backup_";
         Dictionary<string, string> allDirs = new Dictionary<string, string>();
         private string nl = Environment.NewLine;
 
@@ -95,14 +97,14 @@ namespace NinjaTrader_Starter
                 m("NinjaTrader installation at " + defaultNinjaInstallExe + " wasn't detected.");
                 return;
             }
-            else if (!Directory.Exists(targetNinjaBaseFolder))
+            else if (!Directory.Exists(NinjaDirCustom()))
             {
                 m("NinjaTrader documents folder wasn't detected.");
                 return;
             }
-            else if (!File.Exists(tagfilePath(targetNinjaBaseFolder)))
+            else if (!File.Exists(tagfilePath(NinjaDirCustom())))
             {
-                File.WriteAllText(tagfilePath(targetNinjaBaseFolder), defaultInstanceName);
+                File.WriteAllText(tagfilePath(NinjaDirCustom()), defaultInstanceName);
 
                 if ( !File.Exists(tmpVersionPath) )
                 {
@@ -112,6 +114,7 @@ namespace NinjaTrader_Starter
                 }
             }
 
+
             // Fill Form
             createToolTips();
             foreach (DirectoryInfo foundDir in getAllNtFolders())
@@ -119,7 +122,7 @@ namespace NinjaTrader_Starter
                 string dirPath = foundDir.FullName;
 
                 // If not backup folder
-                if(!dirPath.Contains( Path.GetFileName(targetNinjaBaseFolder )+ " Backup"))
+                if(!dirPath.Contains( Path.GetFileName(NinjaDirCustom()) + " Backup"))
                 {
                     string targetFile = dirPath + "\\"+ specFileName;
                     if (File.Exists(targetFile))
@@ -134,8 +137,8 @@ namespace NinjaTrader_Starter
 
         private DirectoryInfo[] getAllNtFolders()
         {
-            DirectoryInfo hdDirectoryInWhichToSearch = new DirectoryInfo(Path.GetDirectoryName(targetNinjaBaseFolder)   );
-            DirectoryInfo[] dirsInDir = hdDirectoryInWhichToSearch.GetDirectories(  Path.GetFileName(targetNinjaBaseFolder) + "*.*");
+            DirectoryInfo hdDirectoryInWhichToSearch = new DirectoryInfo(Path.GetDirectoryName(NinjaDirCustom())   );
+            DirectoryInfo[] dirsInDir = hdDirectoryInWhichToSearch.GetDirectories(  Path.GetFileName(NinjaDirCustom()) + "*.*");
             return dirsInDir;
         }
 
@@ -212,12 +215,19 @@ namespace NinjaTrader_Starter
 
 
 
-        private void startNt_Click(object sender, EventArgs e)
+        private async void startNt_Click(object sender, EventArgs e)
         {
             Button button = sender as Button;
-            string dir = targetNinjaBaseFolder;
-            System.IO.Directory.Move(dir, dir + prefixedSlug(readDirTagname(dir)));
+            string dir = NinjaDirCustom();
+            var newName = dir + prefixedSlug(readDirTagname(dir));
+            // backup current config file
+            backupCurrentConfigXml();
+            await Task.Delay(300);
+            System.IO.Directory.Move(dir, newName);
             Directory.Move(dir + prefixedSlug(button.Text), dir);
+            await Task.Delay(100);
+            restoreCurrentConfigXml();
+
             if (startOnClick.Checked)
             {
                 System.Diagnostics.Process.Start(defaultNinjaInstallExe);
@@ -229,9 +239,9 @@ namespace NinjaTrader_Starter
             Button button = sender as Button;
             string instanceName = button.Tag.ToString();
 
-            if (  DialogResult.OK != MessageBox.Show("Delete  instance?", instanceName, MessageBoxButtons.OKCancel))
+            if (DialogResult.OK != MessageBox.Show("Delete instance?", instanceName, MessageBoxButtons.OKCancel))
                 return;
-            Library_Puvox.Methods.DeleteDirectory(targetNinjaBaseFolder + prefixedSlug(instanceName) );
+            Library_Puvox.Methods.DeleteDirectory(NinjaDirCustom() + prefixedSlug(instanceName) );
 
             //delete this and start button
             button.Parent.Controls.Remove(button);
@@ -243,7 +253,7 @@ namespace NinjaTrader_Starter
         {
             Button button = sender as Button;
             string instanceName = button.Tag.ToString();
-            Process.Start(targetNinjaBaseFolder + prefixedSlug(instanceName));
+            Process.Start(NinjaDirCustom() + prefixedSlug(instanceName));
         }
 
         /*  var permissionSet = new PermissionSet(PermissionState.None);
@@ -265,7 +275,7 @@ namespace NinjaTrader_Starter
         private void addNew_Click(object sender, EventArgs e)
         {
             string newNameSanitized = sanitizePathName(newInstanceName.Text);
-            newPathName = targetNinjaBaseFolder + prefixedSlug(newNameSanitized);  
+            newPathName = NinjaDirCustom() + prefixedSlug(newNameSanitized);  
             if (Directory.Exists(newPathName))
             {
                 m("That already exists.");
@@ -274,8 +284,22 @@ namespace NinjaTrader_Starter
             ProgrHideShow(true);
             new Library_Puvox.Methods.CopyFolderProgressBar(ref progressBar1, getWhereverIsCleanInstancePath(), newPathName);
             File.WriteAllText(newPathName + "\\" + specFileName, newNameSanitized);
+            //
             ProgrHideShow(false);
             insertNewButton(newNameSanitized);
+        }
+
+
+        void backupCurrentConfigXml()
+        {
+            // create config backup file, if it does not exist
+            File.Copy(NinjaDirDocumentsNt() + "\\" + realConfigFileName, NinjaDirCustom() + "\\" + specConfigFileName, true);
+        }
+        void restoreCurrentConfigXml()
+        {
+            var copyFrom = NinjaDirCustom() + "\\" + specConfigFileName;
+            if (File.Exists(copyFrom))
+                File.Copy(copyFrom, NinjaDirDocumentsNt() + "\\" + realConfigFileName, true);
         }
 
         public string prefixedSlug(string buttonText)
@@ -285,7 +309,7 @@ namespace NinjaTrader_Starter
 
         private bool isActiveInstance(string instanceName) { return readDirTagnameInStartDir() == instanceName; }
 
-        private string readDirTagnameInStartDir()      {       return readDirTagname(targetNinjaBaseFolder);      }
+        private string readDirTagnameInStartDir()      {    return readDirTagname(NinjaDirCustom());   }
 
         private string readDirTagname(string dir)
         {
